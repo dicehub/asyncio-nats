@@ -862,7 +862,6 @@ class Client(object):
                 r, w = await asyncio.open_connection(
                     s.uri.hostname,
                     s.uri.port,
-                    loop=self._loop,
                     limit=DEFAULT_BUFFER_SIZE)
                 self._current_server = s
 
