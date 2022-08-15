@@ -302,7 +302,7 @@ class Client(object):
                 pass
 
         # Relinquish control to allow background tasks to wrap up.
-        await asyncio.sleep(0, loop=self._loop)
+        await asyncio.sleep(0)
 
         if self._current_server is not None:
             # In case there is any pending data at this point, flush before disconnecting.
