@@ -856,13 +856,12 @@ class Client(object):
             self._server_pool.append(s)
             if s.last_attempt is not None and now < s.last_attempt + self.options["reconnect_time_wait"]:
                 # Backoff connecting to server if we attempted recently.
-                await asyncio.sleep(self.options["reconnect_time_wait"], loop=self._loop)
+                await asyncio.sleep(self.options["reconnect_time_wait"])
             try:
                 s.last_attempt = time.monotonic()
                 r, w = await asyncio.open_connection(
                     s.uri.hostname,
                     s.uri.port,
-                    loop=self._loop,
                     limit=DEFAULT_BUFFER_SIZE)
                 self._current_server = s
 
