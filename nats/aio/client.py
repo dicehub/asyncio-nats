@@ -316,8 +316,8 @@ class Client(object):
         # to replay the subscriptions anymore.
         for i, sub in self._subs.items():
             # FIXME: Should we clear the pending queue here?
-            while sub.pending_queue:
-                sub.pending_queue.pop().cancel()
+            for task in sub.pending_queue:
+                task.cancel()
         self._subs.clear()
 
         if self._io_writer is not None:
@@ -562,8 +562,8 @@ class Client(object):
         if max_msgs == 0 or sub.received >= max_msgs:
             self._subs.pop(ssid, None)
 
-        while sub.pending_queue:
-            sub.pending_queue.pop().cancel()
+        for task in sub.pending_queue:
+            task.cancel()
 
     async     def _subscribe(self, sub, ssid):
         sub_cmd = b''.join([SUB_OP, _SPC_, sub.subject.encode(
@@ -1063,6 +1063,19 @@ class Client(object):
             self._pongs_received += 1
             self._pings_outstanding -= 1
 
+    async     def _execute_sub(self, sub, payload_size, msg):
+        sub.pending_size -= payload_size
+        try:
+            if sub.coro:
+                await sub.coro(msg)
+            else:
+                sub.cb(msg)
+        except Exception as e:
+            if self._error_cb is not None:
+                self._loop.create_task(self._error_cb(e))
+            else:
+                raise
+
     async     def _process_msg(self, sid, subject, reply, data):
         """
         Process MSG sent by server.
@@ -1109,44 +1122,9 @@ class Client(object):
                 await self._error_cb(
                     ErrSlowConsumer(subject=subject, sid=sid))
         else:
-            if sub.coro:
-
-                params = [self, sub, msg, None]
-
-                async                 def coro_wrap(params=params):
-                    nc, sub, msg, task = params
-                    sub.pending_size -= len(msg.data)
-                    try:
-                        await sub.coro(msg)
-                    except Exception as e:
-                        if nc._error_cb is not None:
-                            nc._loop.create_task(nc._error_cb(e))
-                        else:
-                            raise
-                    except asyncio.CancelledError:
-                        pass
-                    finally:
-                        sub.pending_queue.discard(task)
-
-                params[3] = self._loop.create_task(coro_wrap())
-                
-            else:
-
-                params = [self, sub, msg, None]
-
-                def cb_wrap(params=params):
-                    nc, sub, msg, handle = params
-                    sub.pending_size -= len(msg.data)
-                    sub.pending_queue.discard(handle)
-                    try:
-                        sub.cb(msg)
-                    except Exception as e:
-                        if nc._error_cb is not None:
-                            nc._loop.create_task(nc._error_cb(e))
-                        else:
-                            raise
-
-                params[3] = self._loop.call_soon(cb_wrap)
+            task = self._loop.create_task(self._execute_sub(sub, payload_size, msg))
+            sub.pending_queue.add(task)
+            task.add_done_callback(sub.pending_queue.discard)
 
 
     def _build_message(self, subject, reply, data):
